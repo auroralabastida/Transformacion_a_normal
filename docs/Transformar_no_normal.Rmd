@@ -1,0 +1,219 @@
+---
+title: "Cómo transformar datos no normales"
+output: html_document
+date: '2022-06-15'
+author: RLadies Cuernavaca, Aurora Labastida.
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Observación preliminar de los datos
+
+Usaremos los datos USJudgeRatings incluídos en los datasets R, que contiene calificaciones para los jueces de la suprema corte de E.U. (columnas) emitidas por 43 abogados (filas). Aquí vemos las primeras filas del objeto.
+
+```{r eval=TRUE, echo=FALSE}
+head(USJudgeRatings)
+```
+
+Empecemos con la columna CONT, que contiene el número de contactos que el abogado ha tenido con el juez.
+```{r eval=TRUE, echo=FALSE}
+CONT<-USJudgeRatings$CONT
+```
+
+En el histograma vemos que los datos tienen sesgo positivo (cola hacia la derecha) y que el promedio (en azul) y la media (en rojo) no están en la misma posición.
+```{r eval=TRUE, echo=TRUE, fig.align='center', out.width="50%"}
+hist(CONT)
+abline(v=mean(CONT), col="blue", lwd=3)
+abline(v=median(CONT), col="red", lwd=3)
+```
+
+También podemos observar el alejamiento de la distribución normal con un qqplot, que muestra la distancia entre los cuantiles calculados a partir de nuestros datos (Sample) y los cuantiles esperados para una distribución normal con el mismo promedio y desviación estándar (Theoretical). Aquí vemos como los cuantiles de la muestra y los teóricos se alejan en el extremo derecho del gráfico.
+```{r eval=TRUE, echo=TRUE, fig.align='center', out.width="50%"}
+qqnorm(CONT)
+qqline(CONT)
+```
+
+Veamos de qué tamaño son el sesgo y la curtosis de los datos usando funciones del paquete DescTools
+```{r eval=TRUE, echo=TRUE}
+library(DescTools)
+Skew(CONT)
+Kurt(CONT)
+```
+
+El sesgo y la curtosis mayores a cero sugieren desviaciones de la normalidad. Esto es confirmado por el test de Shapiro Wilk, cuya hipótesis nula es que la distribución de los datos es normal, por lo que una p <= 0.05 (o el nivel de significancia de nuestra elección) rechaza la hipótesis de normalidad.
+```{r eval=TRUE, echo=TRUE}
+shapiro.test(CONT)$p.value
+```
+
+# Transformaciones más conocidas
+
+Para cambiar la forma de los datos podemos usar distintas transformaciones. 
+
+**Raíz cuadrada: Para datos con poco sesgo**
+```{r eval=TRUE, echo=TRUE}
+CONT_raiz<-sqrt(CONT)
+```
+
+**Logaritmo: Para datos con sesgo moderado**
+```{r eval=TRUE, echo=TRUE}
+CONT_log10<-log10(CONT)
+```
+
+**Inverso : Para datos con mucho sesgo**
+```{r eval=TRUE, echo=TRUE}
+CONT_inv<-1/CONT
+```
+
+Ahora concatenamos los datos originales y los transformados en un sólo vector
+```{r eval=TRUE, echo=TRUE}
+valores<-c(CONT, CONT_raiz, CONT_log10, CONT_inv)
+```
+
+Creamos un vector con etiquetas
+
+```{r eval=TRUE, echo=TRUE}
+metodos<-c("Inicial","Raiz","log10","1/x")
+metodo_col<-rep(metodos,each=43)
+```
+
+
+Y creamos un data frame con los valores y sus etiquetas
+```{r eval=TRUE, echo=TRUE}
+datos<-data.frame(
+                  valores=valores,
+                  metodo=factor(metodo_col, levels=metodos, ordered="TRUE")
+                  )
+```
+
+Observemos los datos iniciales y los datos tras distintas transformaciones. Para ello usaremos el paquete ggplot2 y las funciones stat_central_tendency y stat_overlay_normal_density del paquete ggpubr
+
+```{r eval=TRUE, echo=TRUE, fig.align='center'}
+library(ggplot2)
+library(ggpubr)
+
+ ggplot(datos, aes(x=valores)) + geom_density() +
+  facet_wrap(facets = "metodo", scales="free", ncol=1) +
+  stat_central_tendency(type="mean", col="blue") +    #Posición del promedio en azul
+  stat_central_tendency(type="median", col="red") +   #Posición de la media en rojo
+  stat_overlay_normal_density(col = "slategray", linetype = "dashed") #Distribución normal teórica
+```
+
+Vemos cómo la media (azul) y la mediana (rojo) están menos alejadas en los datos transformados que en los originales. Además podemos observar qué tanto se parece cada conjunto de datos a una distribución normal (con mismo promedio y desviación estándar que los datos).
+
+
+Observemos ahora como el **sesgo** y la **curtosis** se acercan más a cero en los datos transformados
+
+```{r eval=TRUE, echo=TRUE}
+by(datos$valores, datos$metodo, Skew)
+```
+
+```{r eval=TRUE, echo=TRUE}
+by(datos$valores, datos$metodo, Kurt)
+```
+
+
+También podemos generar un qqplot. Esta vez utilizaremos la función ggqqplot del paquete ggpubr.
+```{r eval=TRUE, echo=TRUE, fig.align='center', out.width="70%"}
+library(ggpubr)
+ggqqplot(datos, x="valores")+facet_wrap(facets = "metodo", scales="free", ncol=2)
+```
+
+Finalmente, el test de Shapiro Wilk indica que los datos transformados no se desvían significativamente de una distribución normal (p > 0.05)
+```{r eval=TRUE, echo=TRUE}
+by(datos$valores, datos$metodo, shapiro.test)
+```
+
+# Transformanción de datos con sesgo negativo
+
+La columna INTG del set de datos USJudgeRatings, que tiene los scores de "integridad" de los jueces.
+
+```{r eval=TRUE, echo=TRUE}
+INTG<-USJudgeRatings$INTG
+```
+
+Estos datos tienen sesgo negativo (cola a la izquierda)
+
+```{r eval=TRUE, echo=TRUE, fig.align='center', out.width="50%"}
+hist(INTG)
+abline(v=mean(INTG), col="blue", lwd=3)
+abline(v=median(INTG), col="red", lwd=3)
+```
+
+En este caso debemos reflejar los datos antes de transformarlos. Para ello:
+
+```{r eval=TRUE, echo=TRUE, fig.align='center', out.width="50%"}
+INTG_ref<-max(INTG+1) - INTG
+hist(INTG_ref)
+```
+Ahora sí, realizamos las transformaciones de los datos.
+```{r eval=TRUE, echo=TRUE}
+INTG_raiz<-sqrt(INTG_ref)
+
+INTG_log10<-log10(INTG_ref)
+
+INTG_inv<-1/INTG_ref
+```
+Nuevamente usamos histogramas y qqplots para observar el efecto de las transformaciones
+```{r eval=TRUE, echo=FALSE}
+
+valores_INTG<-c(INTG, INTG_raiz, INTG_log10, INTG_inv)
+datos_INTG<-data.frame(
+  valores=valores_INTG,
+  metodo=factor(metodo_col, levels=metodos, ordered="TRUE")
+)
+```
+
+```{r eval=TRUE, echo=FALSE, fig.align='center', out.width="70%"}
+ggplot(datos_INTG, aes(x=valores)) + geom_density() +
+  facet_wrap(facets = "metodo", scales="free", ncol=1) +
+  stat_central_tendency(type="mean", col="blue") +
+  stat_central_tendency(type="median", col="red") +
+  stat_overlay_normal_density(col = "slategray", linetype = "dashed")
+
+ ggqqplot(datos_INTG, x="valores")+facet_wrap(facets = "metodo", scales="free", ncol=2)
+```
+
+En este caso el test de Shapiro Wilk indica que los datos transformados con Raíz o log10 no se desvían significativamente de una distribución normal (p > 0.05).
+
+
+# Herramientas de transformación automática de R
+Distintos paquetes de R incluyen herramientas para la transformación de datos no normales en normales. En seguida se muestran algunos de ellos.
+
+Paque LambertW, función Gaussianize
+```{r eval=TRUE, echo=TRUE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+library("LambertW")
+CONT_Gauss<-as.numeric(Gaussianize(CONT))
+```
+
+```{r eval=TRUE, echo=TRUE, results='hide',  message=FALSE, warning=FALSE, fig.show='hide'}
+library("rcompanion")
+CONT_tukey<-as.numeric(transformTukey(CONT))
+```
+
+```{r eval=TRUE, echo=TRUE, results='hide',  message=FALSE, warning=FALSE, fig.show='hide'}
+library("forecast")
+CONT_BoxCox<-BoxCox(CONT, lambda=BoxCox.lambda(CONT))
+```
+
+```{r eval=TRUE, echo=FALSE, }
+valores<-c(CONT, CONT_Gauss, CONT_tukey, CONT_BoxCox)
+
+# Creamos un nuevo vector con etiquetas
+metodos<-c("Inicial","Gaussianize","Tukey","BoxCox")
+metodo_col<-rep(metodos,each=43)
+
+datos<-data.frame(
+  valores=valores,
+  metodo=factor(metodo_col, levels=metodos, ordered="TRUE")
+)
+
+ggplot(datos, aes(x=valores)) + geom_density() +
+  facet_wrap(facets = "metodo", scales="free", ncol=1) +
+  stat_central_tendency(type="mean", col="blue") +
+  stat_central_tendency(type="median", col="red") +
+  stat_overlay_normal_density(col = "slategray", linetype = "dashed")
+```
+
+En este caso el test de Shapiro Wilk indica que los datos transformados con Gaussianize y Tukey no se desvían significativamente de una distribución normal (p > 0.05)
